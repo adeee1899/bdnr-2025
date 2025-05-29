@@ -1,0 +1,3 @@
+docker run -d --name redis-bdnr-ranking -p 6379:6379 \
+  -v C:/Users/PC/redis-data:/data \
+  redis redis-server --appendonly yes --dir /data
