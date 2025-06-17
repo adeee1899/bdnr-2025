@@ -1,0 +1,17 @@
+modo_persistencia,politica_memoria,lat_p50_mean,lat_p50_std,lat_p99_mean,lat_p99_std
+aof_always,allkeys_lfu,1.425266,0.015139,4.279296,1.206702
+aof_always,allkeys_lru,1.393636,0.008023,5.189816,1.188212
+aof_always,allkeys_random,1.378775,0.015871,6.900469,0.227171
+aof_always,noeviction,1.349052,0.03785,2.806822,0.973672
+aof_everysec,allkeys_lfu,0.630538,0.003474,0.99659,0.01658
+aof_everysec,allkeys_lru,0.629425,0.006213,1.001755,0.033983
+aof_everysec,allkeys_random,0.744661,0.101238,3.990173,5.159863
+aof_everysec,noeviction,0.608524,0.013361,0.957727,0.033274
+mixto,allkeys_lfu,0.639915,0.004642,1.022577,0.009919
+mixto,allkeys_lru,0.641743,0.002615,1.06144,0.015043
+mixto,allkeys_random,0.649452,0.003127,1.199961,0.275161
+mixto,noeviction,0.628153,0.012167,1.027505,0.041543
+rdb,allkeys_lfu,0.42065,0.002549,0.687202,0.028505
+rdb,allkeys_lru,0.420968,0.005059,0.674248,0.032856
+rdb,allkeys_random,0.417709,0.008039,0.658353,0.015711
+rdb,noeviction,0.408252,0.00268,0.679016,0.062862
