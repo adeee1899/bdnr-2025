@@ -3,7 +3,7 @@ import redis
 import json
 
 # Conexión a Redis
-r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+r = redis.Redis(host='localhost', port=6380, decode_responses=True)
 
 print("=== Verificación de carga en Redis ===\n")
 
