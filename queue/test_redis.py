@@ -1,35 +1,73 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script usado para benchmark Redis con sistema de cola de tickets de soporte al cliente.
-Se llama desde run_tests.sh y utiliza LIST y HASH de Redis.
+Benchmark Redis con sistema de cola de tickets de soporte.
+Usa LIST y HASH de Redis.
+Se llama desde run_tests.sh
 """
 import redis
 import pandas as pd
+import random
 import time
 import os
 import sys
 import csv
 from datetime import datetime
 
-def cargar_tickets(path_csv, max_tickets):
-    """Carga el CSV en memoria hasta max_tickets registros"""
+def cargar_tickets(path_csv, max_tickets, expandir_tickets=True):
+    """Carga el CSV en memoria, expandiendo si es necesario para llegar a max_tickets"""
     df = pd.read_csv(path_csv)
     total = len(df)
     print(f"Filas totales en CSV: {total}")
-    df = df.fillna("")
-    tickets = df.to_dict(orient="records")
-    if max_tickets < total:
-        tickets = tickets[:max_tickets]
-    print(f"Tickets a usar: {len(tickets)}")
+    
+    # Rellenar nulos correctamente según tipo
+    for col in df.select_dtypes(include=["object"]).columns:
+        df[col].fillna("", inplace=True)
+    for col in df.select_dtypes(include=["number"]).columns:
+        df[col].fillna(0, inplace=True)
+
+    tickets = []
+    contador = 0
+    id_global = 0
+
+    while contador < max_tickets:
+        for _, row in df.iterrows():
+            if contador >= max_tickets:
+                break
+
+            versiones = [0] if not expandir_tickets else range(4)
+            for v in versiones:
+                if contador >= max_tickets:
+                    break
+
+                ticket_id = f"tkt:{id_global}"
+                id_global += 1
+
+                subject = row["Ticket Subject"] if v == 0 else f"{row['Ticket Subject']} - versión {v}"
+
+                ticket = {
+                    "Ticket ID": ticket_id,
+                    "Customer Name": row.get("Customer Name", ""),
+                    "Customer Email": row.get("Customer Email", ""),
+                    "Ticket Subject": subject,
+                    "Ticket Priority": row.get("Ticket Priority", ""),
+                    "Ticket Status": row.get("Ticket Status", ""),
+                    # agregar más campos si querés
+                }
+                tickets.append(ticket)
+                contador += 1
+
+                if contador % 100000 == 0:
+                    print(f"Cargados {contador} tickets...")
+
+            if contador >= max_tickets:
+                break
+
+    print(f"Tickets cargados en memoria: {len(tickets)}")
     return tickets
 
-
-def ejecutar_operaciones(r, tickets):
-    """
-    Mide latencias de inserción (LPUSH+HSET) y consumo (RPOP+HGETALL).
-    Devuelve p50_insert, p99_insert, thr_insert, p50_consume, p99_consume, thr_consume
-    """
+def ejecutar_operaciones(r, tickets, rondas=3):
+    """Mide latencias de inserción y consumo en Redis"""
     insert_lat = []
     consume_lat = []
     n = len(tickets)
@@ -39,45 +77,44 @@ def ejecutar_operaciones(r, tickets):
     t0 = time.time()
     for t in tickets:
         start = time.time()
-        # HSET detalles
         key = f"ticket:{t['Ticket ID']}"
         r.hset(key, mapping={
-            "customer_name": t.get("Customer Name", ""),
-            "customer_email": t.get("Customer Email", ""),
-            "ticket_subject": t.get("Ticket Subject", ""),
-            "ticket_priority": t.get("Ticket Priority", ""),
-            "ticket_status": t.get("Ticket Status", ""),
-            # agregar otros campos si se desea
+            "customer_name": t["Customer Name"],
+            "customer_email": t["Customer Email"],
+            "ticket_subject": t["Ticket Subject"],
+            "ticket_priority": t["Ticket Priority"],
+            "ticket_status": t["Ticket Status"],
         })
-        # LPUSH a la cola
-        r.lpush("tickets_queue", t['Ticket ID'])
+        r.lpush("tickets_queue", t["Ticket ID"])
         insert_lat.append(time.time() - start)
     dt_ins = time.time() - t0
-    ops_ins = n * 2  # HSET + LPUSH
-    thr_ins = ops_ins / dt_ins if dt_ins>0 else 0
-    ms_ins = sorted([l*1000 for l in insert_lat])
-    p50_ins = ms_ins[len(ms_ins)//2] if ms_ins else 0
-    p99_ins = ms_ins[int(len(ms_ins)*0.99)] if len(ms_ins)>1 else p50_ins
+    ops_ins = n * 2
+    thr_ins = ops_ins / dt_ins if dt_ins > 0 else 0
+    ms_ins = sorted([l * 1000 for l in insert_lat])
+    p50_ins = ms_ins[len(ms_ins) // 2] if ms_ins else 0
+    p99_ins = ms_ins[int(len(ms_ins) * 0.99)] if len(ms_ins) > 1 else p50_ins
 
-    # Consumo de tickets
+    # Consumo de tickets simulando procesamiento
     print("=== Fase de consumo ===")
     t0 = time.time()
-    while True:
-        start = time.time()
-        tid = r.rpop("tickets_queue")
-        if tid is None:
-            break
-        _ = r.hgetall(f"ticket:{tid}")
-        consume_lat.append(time.time() - start)
+    ops = 0
+    for i in range(rondas):
+        while True:
+            start = time.time()
+            tid = r.rpop("tickets_queue")
+            if tid is None:
+                break
+            _ = r.hgetall(f"ticket:{tid}")
+            consume_lat.append(time.time() - start)
+            ops += 2  # RPOP + HGETALL
+        print(f"Ronda {i+1}/{rondas} completada.")
     dt_cons = time.time() - t0
-    ops_cons = len(consume_lat) * 2  # RPOP + HGETALL
-    thr_cons = ops_cons / dt_cons if dt_cons>0 else 0
-    ms_cons = sorted([l*1000 for l in consume_lat])
-    p50_cons = ms_cons[len(ms_cons)//2] if ms_cons else 0
-    p99_cons = ms_cons[int(len(ms_cons)*0.99)] if len(ms_cons)>1 else p50_cons
+    thr_cons = ops / dt_cons if dt_cons > 0 else 0
+    ms_cons = sorted([l * 1000 for l in consume_lat])
+    p50_cons = ms_cons[len(ms_cons) // 2] if ms_cons else 0
+    p99_cons = ms_cons[int(len(ms_cons) * 0.99)] if len(ms_cons) > 1 else p50_cons
 
     return p50_ins, p99_ins, thr_ins, p50_cons, p99_cons, thr_cons
-
 
 def esperar_bgsave(r, timeout=60.0, interval=0.5):
     start = time.time()
@@ -86,7 +123,7 @@ def esperar_bgsave(r, timeout=60.0, interval=0.5):
         if info.get("rdb_bgsave_in_progress") == 0:
             break
         if time.time() - start > timeout:
-            print("WARNING: timeout esperando que termine BGSAVE previo")
+            print("WARNING: timeout esperando fin de BGSAVE previo")
             return False
         time.sleep(interval)
     r.bgsave()
@@ -100,9 +137,7 @@ def esperar_bgsave(r, timeout=60.0, interval=0.5):
         time.sleep(interval)
     return True
 
-
 def medir_metricas(r, redis_dir, modo):
-    # Persistencia
     if modo.startswith("rdb") or modo == "mixto":
         esperar_bgsave(r)
     if modo.startswith("aof") or modo == "mixto":
@@ -122,7 +157,7 @@ def medir_metricas(r, redis_dir, modo):
 
     mem = r.info("memory")
     stats = r.info("stats")
-    memory_used  = mem["used_memory"]
+    memory_used = mem["used_memory"]
     evicted_keys = stats.get("evicted_keys", 0)
 
     rdb_path = os.path.join(redis_dir, "dump.rdb")
@@ -138,11 +173,12 @@ def medir_metricas(r, redis_dir, modo):
             if fname.startswith("appendonly.aof"):
                 aof_size += os.path.getsize(os.path.join(append_dir, fname))
 
-    return {"memory_used": memory_used,
-            "evicted_keys": evicted_keys,
-            "rdb_size": rdb_size,
-            "aof_size": aof_size}
-
+    return {
+        "memory_used": memory_used,
+        "evicted_keys": evicted_keys,
+        "rdb_size": rdb_size,
+        "aof_size": aof_size
+    }
 
 def guardar_csv(fname, datos, modo, politica, dataset,
                 p50_ins, p99_ins, thr_ins, p50_con, p99_con, thr_con):
@@ -165,7 +201,6 @@ def guardar_csv(fname, datos, modo, politica, dataset,
             datos["rdb_size"], datos["aof_size"], datos["evicted_keys"]
         ])
 
-
 def main():
     if len(sys.argv) != 7:
         print("Uso: test_redis_queue.py <csv> <modo> <politica> <dataset> <redis_dir> <out_csv>")
@@ -182,7 +217,6 @@ def main():
     print(f"Modo={modo}, Pol={politica}, Dataset={dataset}")
 
     tickets = cargar_tickets(path_csv, int(dataset))
-    # Inicializar cola y datos previos
     r.flushdb()
 
     p50_i, p99_i, thr_i, p50_c, p99_c, thr_c = ejecutar_operaciones(r, tickets)
