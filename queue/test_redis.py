@@ -52,7 +52,6 @@ def cargar_tickets(path_csv, max_tickets, expandir_tickets=True):
                     "Ticket Subject": subject,
                     "Ticket Priority": row.get("Ticket Priority", ""),
                     "Ticket Status": row.get("Ticket Status", ""),
-                    # agregar más campos si querés
                 }
                 tickets.append(ticket)
                 contador += 1
@@ -66,19 +65,16 @@ def cargar_tickets(path_csv, max_tickets, expandir_tickets=True):
     print(f"Tickets cargados en memoria: {len(tickets)}")
     return tickets
 
+
 def ejecutar_operaciones(r, tickets, rondas=3):
     """Mide latencias de inserción y consumo en Redis"""
-    insert_lat = []
     consume_lat = []
     n = len(tickets)
 
-    # Inserción de tickets
+    # Inserción de todos los tickets antes de consumo
     print("=== Fase de inserción ===")
-    t0 = time.time()
     for t in tickets:
-        start = time.time()
-        key = f"ticket:{t['Ticket ID']}"
-        r.hset(key, mapping={
+        r.hset(f"ticket:{t['Ticket ID']}", mapping={
             "customer_name": t["Customer Name"],
             "customer_email": t["Customer Email"],
             "ticket_subject": t["Ticket Subject"],
@@ -86,18 +82,11 @@ def ejecutar_operaciones(r, tickets, rondas=3):
             "ticket_status": t["Ticket Status"],
         })
         r.lpush("tickets_queue", t["Ticket ID"])
-        insert_lat.append(time.time() - start)
-    dt_ins = time.time() - t0
-    ops_ins = n * 2
-    thr_ins = ops_ins / dt_ins if dt_ins > 0 else 0
-    ms_ins = sorted([l * 1000 for l in insert_lat])
-    p50_ins = ms_ins[len(ms_ins) // 2] if ms_ins else 0
-    p99_ins = ms_ins[int(len(ms_ins) * 0.99)] if len(ms_ins) > 1 else p50_ins
 
-    # Consumo de tickets simulando procesamiento
+    # Consumo de tickets simulando procesamiento por rondas
     print("=== Fase de consumo ===")
-    t0 = time.time()
     ops = 0
+    t0 = time.time()
     for i in range(rondas):
         while True:
             start = time.time()
@@ -108,13 +97,15 @@ def ejecutar_operaciones(r, tickets, rondas=3):
             consume_lat.append(time.time() - start)
             ops += 2  # RPOP + HGETALL
         print(f"Ronda {i+1}/{rondas} completada.")
-    dt_cons = time.time() - t0
-    thr_cons = ops / dt_cons if dt_cons > 0 else 0
-    ms_cons = sorted([l * 1000 for l in consume_lat])
-    p50_cons = ms_cons[len(ms_cons) // 2] if ms_cons else 0
-    p99_cons = ms_cons[int(len(ms_cons) * 0.99)] if len(ms_cons) > 1 else p50_cons
+    dt = time.time() - t0
 
-    return p50_ins, p99_ins, thr_ins, p50_cons, p99_cons, thr_cons
+    ms = sorted([l * 1000 for l in consume_lat])
+    p50 = ms[len(ms) // 2] if ms else 0
+    p99 = ms[int(len(ms) * 0.99)] if len(ms) > 1 else p50
+    thr = ops / dt if dt > 0 else 0
+
+    return p50, p99, thr
+
 
 def esperar_bgsave(r, timeout=60.0, interval=0.5):
     start = time.time()
@@ -136,6 +127,7 @@ def esperar_bgsave(r, timeout=60.0, interval=0.5):
             return False
         time.sleep(interval)
     return True
+
 
 def medir_metricas(r, redis_dir, modo):
     if modo.startswith("rdb") or modo == "mixto":
@@ -180,14 +172,11 @@ def medir_metricas(r, redis_dir, modo):
         "aof_size": aof_size
     }
 
-def guardar_csv(fname, datos, modo, politica, dataset,
-                p50_ins, p99_ins, thr_ins, p50_con, p99_con, thr_con):
-    header = [
-        "fecha","modo","politica","dataset",
-        "lat50_ins_ms","lat99_ins_ms","thr_ins_ops_s",
-        "lat50_cons_ms","lat99_cons_ms","thr_cons_ops_s",
-        "rdb_bytes","aof_bytes","evicted_keys"
-    ]
+
+def guardar_csv(fname, datos, modo, politica, dataset, p50, p99, thr):
+    header = ["fecha","modo","politica","dataset",
+              "lat_p50_ms","lat_p99_ms","throughput",
+              "rdb_bytes","aof_bytes","evicted_keys"]
     existe = os.path.isfile(fname)
     with open(fname, "a", newline="") as f:
         w = csv.writer(f)
@@ -196,10 +185,10 @@ def guardar_csv(fname, datos, modo, politica, dataset,
         w.writerow([
             datetime.now().isoformat(),
             modo, politica, dataset,
-            f"{p50_ins:.3f}", f"{p99_ins:.3f}", f"{thr_ins:.1f}",
-            f"{p50_con:.3f}", f"{p99_con:.3f}", f"{thr_con:.1f}",
+            f"{p50:.3f}", f"{p99:.3f}", f"{thr:.1f}",
             datos["rdb_size"], datos["aof_size"], datos["evicted_keys"]
         ])
+
 
 def main():
     if len(sys.argv) != 7:
@@ -217,12 +206,9 @@ def main():
     print(f"Modo={modo}, Pol={politica}, Dataset={dataset}")
 
     tickets = cargar_tickets(path_csv, int(dataset))
-    r.flushdb()
-
-    p50_i, p99_i, thr_i, p50_c, p99_c, thr_c = ejecutar_operaciones(r, tickets)
+    p50, p99, thr = ejecutar_operaciones(r, tickets)
     mets = medir_metricas(r, redis_dir, modo)
-    guardar_csv(out_csv, mets, modo, politica, dataset,
-                p50_i, p99_i, thr_i, p50_c, p99_c, thr_c)
+    guardar_csv(out_csv, mets, modo, politica, dataset, p50, p99, thr)
 
     print("Benchmark completado. Resultados en", out_csv)
 
