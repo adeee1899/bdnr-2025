@@ -29,18 +29,18 @@ declare -a cmd11=("CONFIG" "SET" "appendfsync" "everysec")
 # 2) Políticas de memoria
 # ------------------------------
 declare -A MEMORY_POLICIES_CMDS
-MEMORY_POLICIES_CMDS["noeviction"]="CONFIG SET maxmemory 100gb; CONFIG SET maxmemory-policy noeviction"
-MEMORY_POLICIES_CMDS["allkeys_lru"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-lru"
-MEMORY_POLICIES_CMDS["allkeys_lfu"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-lfu"
-MEMORY_POLICIES_CMDS["allkeys_random"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-random"
+MEMORY_POLICIES_CMDS["noeviction"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy noeviction"
+# MEMORY_POLICIES_CMDS["allkeys_lru"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-lru"
+# MEMORY_POLICIES_CMDS["allkeys_lfu"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-lfu"
+# MEMORY_POLICIES_CMDS["allkeys_random"]="CONFIG SET maxmemory 100mb; CONFIG SET maxmemory-policy allkeys-random"
 
 # ------------------------------
 # 3) Tamaños de dataset (labels y valores)
 # ------------------------------
 declare -A DATASET_SIZES
 DATASET_SIZES["100k"]=100000
-DATASET_SIZES["500k"]=500000
-DATASET_SIZES["1M"]=1000000
+# DATASET_SIZES["500k"]=500000
+# DATASET_SIZES["1M"]=1000000
 
 # ------------------------------
 # 4) Variables globales
