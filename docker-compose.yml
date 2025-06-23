@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-test
+    # ――― todas las flags en una lista ―――
+    command:
+      - redis-server
+      - --save
+      - "60"
+      - "10000"
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - "0"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - ./data:/data
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: UTC
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
